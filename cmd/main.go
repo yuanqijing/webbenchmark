@@ -13,7 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EDDYCJY/fake-useragent"
+	"k8s.io/klog/v2"
+
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/load"
 	"github.com/shirou/gopsutil/mem"
@@ -96,12 +97,12 @@ func showStat() {
 			log("Nic: {netName} ↓ {netRecv} | ↑ {netSent}", P{"netName": netName, "netRecv": netRecv, "netSent": netSent})
 		}
 		initialNetCounter = netCounter
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 	}
 }
 
 func benchmark(url string, method string, postData string, referer string, xForwardFor bool, wg *sync.WaitGroup) {
-	for true {
+	for {
 		var request *http.Request
 		var err1 error = nil
 		if method == "GET" {
@@ -115,25 +116,53 @@ func benchmark(url string, method string, postData string, referer string, xForw
 		if len(referer) == 0 {
 			referer = url
 		}
-		request.Header.Add("Cookie", RandStringBytesMaskImpr(12))
-		request.Header.Add("User-Agent", browser.Random())
-		request.Header.Add("Referer", referer)
-		if xForwardFor {
-			randomIp := generateRandomIPAddress()
-			request.Header.Add("X-Forwarded-For", randomIp)
-			request.Header.Add("X-Real-IP", randomIp)
+		client := &http.Client{
+			Timeout: time.Second * 1,
 		}
-		client := &http.Client{}
 		response, err2 := client.Do(request)
+		//klog.Infof("got Response")
+		QPS.Add()
 		if err2 != nil {
+			klog.Errorf("Error2: %s", err2)
 			continue
 		}
 		_, err3 := io.Copy(ioutil.Discard, response.Body)
 		if err3 != nil {
+			klog.Errorf("Error3: %s", err3)
 			continue
 		}
 	}
 	wg.Done()
+}
+
+var QPS = qps{mu: sync.Mutex{}}
+
+type qps struct {
+	// count is atomic int64
+	count int64
+
+	// increase is atomic int64
+	increase int64
+	mu       sync.Mutex
+}
+
+func (q *qps) Add() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.increase++
+}
+
+func (q *qps) Run() int64 {
+	for {
+		<-time.After(5 * time.Second)
+
+		klog.Infof("QPS: %d", q.increase/5)
+		klog.Infof("Total: %d", q.count)
+		q.mu.Lock()
+		q.count += q.increase
+		q.increase = 0
+		q.mu.Unlock()
+	}
 }
 
 func main() {
@@ -145,7 +174,7 @@ func main() {
 	var xForwardedFor, _ = strconv.ParseBool(getEnv("URL", "false"))
 	log("THREAD: {thread}  URL: {url}", P{"thread": thread, "url": url})
 	log("method: {method} postData: {postData} referer: {referer} xForwardedFor: {xForwardedFor}", P{"method": method, "postData": postData, "referer": referer, "xForwardedFor": xForwardedFor})
-
+	go QPS.Run()
 	go showStat()
 	var waitGroup sync.WaitGroup
 	for i := 0; i < thread; i++ {
