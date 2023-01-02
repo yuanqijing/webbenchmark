@@ -156,8 +156,7 @@ func (q *qps) Run() int64 {
 	for {
 		<-time.After(5 * time.Second)
 
-		klog.Infof("QPS: %d", q.increase/5)
-		klog.Infof("Total: %d", q.count)
+		klog.Infof("QPS: %d, total: %d", q.increase, q.count)
 		q.mu.Lock()
 		q.count += q.increase
 		q.increase = 0
@@ -175,7 +174,7 @@ func main() {
 	log("THREAD: {thread}  URL: {url}", P{"thread": thread, "url": url})
 	log("method: {method} postData: {postData} referer: {referer} xForwardedFor: {xForwardedFor}", P{"method": method, "postData": postData, "referer": referer, "xForwardedFor": xForwardedFor})
 	go QPS.Run()
-	go showStat()
+	//go showStat()
 	var waitGroup sync.WaitGroup
 	for i := 0; i < thread; i++ {
 		waitGroup.Add(1)
